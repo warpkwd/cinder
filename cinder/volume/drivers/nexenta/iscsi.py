@@ -22,7 +22,7 @@
 .. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
 """
 
-from oslo.log import log as logging
+from cinder.openstack.common import log as logging
 
 from cinder import exception
 from cinder.volume import driver
