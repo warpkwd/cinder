@@ -21,7 +21,7 @@
 .. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
 """
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 
 NEXENTA_CONNECTION_OPTIONS = [
@@ -33,6 +33,7 @@ NEXENTA_CONNECTION_OPTIONS = [
                help='HTTP port to connect to Nexenta REST API server'),
     cfg.StrOpt('nexenta_rest_protocol',
                default='auto',
+               choices=['http', 'https', 'auto'],
                help='Use http or https for REST connection (default auto)'),
     cfg.StrOpt('nexenta_user',
                default='admin',
@@ -49,13 +50,13 @@ NEXENTA_ISCSI_OPTIONS = [
                help='Nexenta target portal port'),
     cfg.StrOpt('nexenta_volume',
                default='cinder',
-               help='pool on SA that will hold all volumes'),
+               help='SA Pool that holds all volumes'),
     cfg.StrOpt('nexenta_target_prefix',
                default='iqn.1986-03.com.sun:02:cinder-',
                help='IQN prefix for iSCSI targets'),
     cfg.StrOpt('nexenta_target_group_prefix',
                default='cinder/',
-               help='prefix for iSCSI target groups on SA'),
+               help='Prefix for iSCSI target groups on SA'),
 ]
 
 NEXENTA_NFS_OPTIONS = [
@@ -64,15 +65,13 @@ NEXENTA_NFS_OPTIONS = [
                help='File with the list of available nfs shares'),
     cfg.StrOpt('nexenta_mount_point_base',
                default='$state_path/mnt',
-               help='Base dir containing mount points for nfs shares'),
+               help='Base directory that contains NFS share mount points'),
     cfg.BoolOpt('nexenta_sparsed_volumes',
                 default=True,
-                help=('Create volumes as sparsed files which take no space.'
-                      'If set to False volume is created as regular file.'
-                      'In such case volume creation takes a lot of time.')),
-    cfg.StrOpt('nexenta_volume_compression',
-               default='on',
-               help='Default compression value for new ZFS folders.'),
+                help='Enables or disables the creation of volumes as '
+                     'sparsed files that take no space. If disabled '
+                     '(False), volume is created as a regular file, '
+                     'which takes a long time.'),
     cfg.BoolOpt('nexenta_nms_cache_volroot',
                 default=True,
                 help=('If set True cache NexentaStor appliance volroot option '
@@ -80,12 +79,29 @@ NEXENTA_NFS_OPTIONS = [
 ]
 
 NEXENTA_VOLUME_OPTIONS = [
-    cfg.StrOpt('nexenta_blocksize',
+    cfg.StrOpt('nexenta_volume_compression',
+               default='on',
+               choices=['on', 'off', 'gzip', 'gzip-1', 'gzip-2', 'gzip-3',
+                        'gzip-4', 'gzip-5', 'gzip-6', 'gzip-7', 'gzip-8',
+                        'gzip-9', 'lzjb', 'zle', 'lz4'],
+               help='Compression value for new ZFS folders.'),
+    cfg.StrOpt('nexenta_volume_dedup',
+               default='off',
+               choices=['on', 'off', 'sha256', 'verify', 'sha256, verify'],
+               help='Deduplication value for new ZFS folders.'),
+    cfg.StrOpt('nexenta_volume_description',
                default='',
-               help='block size for volumes (blank=default,8KB)'),
+               help='Human-readable description for the folder.'),
+    cfg.StrOpt('self.configuration.nexenta_blocksize',
+               default='',
+               help='Block size for volumes (default=blank means 8KB)'),
     cfg.BoolOpt('nexenta_sparse',
                 default=False,
-                help='flag to create sparse volumes'),
+                help='Enables or disables the creation of sparse volumes'),
+    cfg.IntOpt('nexenta_capacitycheck',
+               default=80,
+               help=('Percentage of real disc capacity for cinder to use. '
+                     '80 is recommened')),
 ]
 
 NEXENTA_RRMGR_OPTIONS = [
