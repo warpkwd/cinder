@@ -31,7 +31,7 @@ from cinder.volume.drivers.nexenta import jsonrpc
 from cinder.volume.drivers.nexenta import options
 from cinder.volume.drivers.nexenta import utils
 
-VERSION = '1.3.0i'
+VERSION = '1.3.0'
 LOG = logging.getLogger(__name__)
 
 
@@ -51,8 +51,8 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         1.2.1 - Fixed bug #1263258: now migrate_volume update provider_location
                 of migrated volume; after migrating volume migrate_volume
                 destroy snapshot on migration destination.
+        1.2.2 - Fixed Lun 0 issue.
         1.3.0 - Added retype method.
-        1.3.0i - reverted to old imports to support Icehouse Cinder
     """
 
     VERSION = VERSION
