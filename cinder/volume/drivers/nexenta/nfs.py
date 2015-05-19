@@ -29,7 +29,6 @@ from eventlet import greenthread
 from cinder import context
 from cinder import db
 from cinder import exception
-from cinder.i18n import _
 from cinder.openstack.common import log as logging
 from cinder import units
 from cinder.volume.drivers import nexenta
