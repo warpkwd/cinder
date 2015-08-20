@@ -25,20 +25,21 @@ import hashlib
 import os
 import re
 
+from eventlet import greenthread
+from oslo_log import log as logging
 from oslo_utils import units
 
 from cinder import context
 from cinder import db
 from cinder import exception
 from cinder.i18n import _, _LE, _LI, _LW
-from cinder.openstack.common import log as logging
 from cinder.volume.drivers import nexenta
 from cinder.volume.drivers.nexenta import jsonrpc
 from cinder.volume.drivers.nexenta import options
 from cinder.volume.drivers.nexenta import utils
 from cinder.volume.drivers import nfs
 
-VERSION = '1.3.0'
+VERSION = '1.2.0'
 LOG = logging.getLogger(__name__)
 
 
@@ -516,8 +517,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 return
             elif 'has dependent clones' in exc.args[0]:
                 LOG.info(_LI('Snapshot %s has dependent clones, it will '
-                             'be deleted later.'), '%s@%s' % (
-                             folder, snapshot))
+                             'be deleted later.'), '%s@%s' % (folder, snapshot))
                 return
 
     def _create_sparsed_file(self, nms, path, size):
@@ -688,6 +688,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                         'Retrying mount ...'), {
                         'attempt': attempt,
                         'error': e})
+                greenthread.sleep(1)
 
     def _mount_subfolders(self):
         ctxt = context.get_admin_context()

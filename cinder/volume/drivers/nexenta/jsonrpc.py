@@ -23,17 +23,16 @@
 import socket
 import time
 
+from oslo_log import log as logging
 from oslo_serialization import jsonutils
 import requests
 from six import wraps
 
-from cinder.i18n import _
-from cinder.openstack.common import log as logging
+from cinder.i18n import _, _LE, _LI
 from cinder.volume.drivers import nexenta
 
 LOG = logging.getLogger(__name__)
 socket.setdefaulttimeout(100)
-
 
 def retry(exc_tuple, tries=5, delay=1, backoff=2):
     def retry_dec(f):
@@ -49,7 +48,7 @@ def retry(exc_tuple, tries=5, delay=1, backoff=2):
                     _delay *= backoff
                     LOG.debug(_('Retrying %s, (%s attempts remaining)...'),
                               (args, _tries))
-            msg = (_('Retry count exceeded for command: %s'), args)
+            msg = (_('Retry count exceeded for command: %s'), (args,))
             LOG.error(msg)
             raise NexentaJSONException(msg)
         return func_retry
