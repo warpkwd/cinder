@@ -146,7 +146,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             '%sG' % (volume['size'],),
             self.configuration.nexenta_blocksize,
             self.configuration.nexenta_sparse)
-        return self.create_export(None, volume, None)
+        return self.create_export(None, volume)
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume.
@@ -213,7 +213,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
                 LOG.warning(_LW('Failed to delete zfs snapshot '
                                 '%(volume_name)s@%(name)s'), snapshot)
             raise
-        self.create_export(None, volume, None)
+        self.create_export(None, volume)
 
     def _get_zfs_send_recv_cmd(self, src, dst):
         """Returns rrmgr command for source and destination."""
@@ -407,7 +407,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             '%s@%s' % (self._get_zvol_name(snapshot['volume_name']),
                        snapshot['name']),
             self._get_zvol_name(volume['name']))
-        return self.create_export(None, volume, None)
+        return self.create_export(None, volume)
 
     def delete_snapshot(self, snapshot):
         """Delete volume's snapshot on appliance.
@@ -613,7 +613,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
                 LOG.info(_LI('Ignored LUN mapping entry addition error "%s" '
                              'while ensuring export'), exc)
 
-    def create_export(self, _ctx, volume, connector):
+    def create_export(self, _ctx, volume):
         """Create new export for zvol.
 
         :param volume: reference of volume to be exported
