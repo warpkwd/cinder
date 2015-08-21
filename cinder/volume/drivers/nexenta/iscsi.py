@@ -165,8 +165,8 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         :param volume: volume reference
         """
         volume_name = self._get_zvol_name(volume['name'])
-        props = self.nms.zvol.get_child_props(volume_name, 'origin') or {}
         try:
+            props = self.nms.zvol.get_child_props(volume_name, 'origin') or {}
             self.nms.zvol.destroy(volume_name, '')
         except nexenta.NexentaException as exc:
             if 'does not exist' in exc.args[0]:
@@ -174,7 +174,8 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
                              'seems it was already deleted.'), volume_name)
                 return
             if 'zvol has children' in exc.args[0]:
-                raise exception.VolumeIsBusy(volume_name=volume_name)
+                LOG.info(_LI('Volume %s will be deleted later.'), volume_name)
+                return
             raise
         origin = props.get('origin')
         if origin and self._is_clone_snapshot_name(origin):
@@ -212,6 +213,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
                 LOG.warning(_LW('Failed to delete zfs snapshot '
                                 '%(volume_name)s@%(name)s'), snapshot)
             raise
+        self.create_export(None, volume)
 
     def _get_zfs_send_recv_cmd(self, src, dst):
         """Returns rrmgr command for source and destination."""
@@ -405,6 +407,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             '%s@%s' % (self._get_zvol_name(snapshot['volume_name']),
                        snapshot['name']),
             self._get_zvol_name(volume['name']))
+        return self.create_export(None, volume)
 
     def delete_snapshot(self, snapshot):
         """Delete volume's snapshot on appliance.
@@ -421,7 +424,9 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
                              'already deleted.'), snapshot_name)
                 return
             if "snapshot has dependent clones" in exc.args[0]:
-                raise exception.SnapshotIsBusy(snapshot_name=snapshot['name'])
+                LOG.info(_LI('Snapshot %s has dependent clones, will be '
+                             'deleted later.'), snapshot_name)
+                return
             raise
 
     def local_path(self, volume):
@@ -675,6 +680,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             'host': self.nms_host,
             'volume': self.volume
         }
+        reserve = 100 - self.configuration.nexenta_capacitycheck
         self._stats = {
             'vendor_name': 'Nexenta',
             'dedup': self.volume_deduplication,
@@ -684,7 +690,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             'storage_protocol': 'iSCSI',
             'total_capacity_gb': total_amount,
             'free_capacity_gb': free_amount,
-            'reserved_percentage': self.configuration.nexenta_capacitycheck,
+            'reserved_percentage': reserve,
             'QoS_support': False,
             'volume_backend_name': self.backend_name,
             'location_info': location_info,

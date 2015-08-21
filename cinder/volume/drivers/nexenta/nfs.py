@@ -55,11 +55,13 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         1.1.3 - Redefined volume_backend_name attribute inherited from
                 RemoteFsDriver.
         1.2.0 - Added migrate and retype methods.
+        1.3.0 - Extend volume method.
     """
 
     driver_prefix = 'nexenta'
     volume_backend_name = 'NexentaNfsDriver'
     VERSION = VERSION
+    VOLUME_FILE_NAME = 'volume'
 
     def __init__(self, *args, **kwargs):
         super(NexentaNfsDriver, self).__init__(*args, **kwargs)
@@ -327,17 +329,21 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                        self.driver_prefix + '_sparsed_volumes'):
                 self._create_sparsed_file(nms, volume_path, volume_size)
             else:
-                compression = nms.folder.get('compression')
+                folder_path = '%s/%s' % (vol, folder)
+                compression = nms.folder.get_child_prop(
+                    folder_path, 'compression')
                 if compression != 'off':
                     # Disable compression, because otherwise will not use space
                     # on disk.
-                    nms.folder.set('compression', 'off')
+                    nms.folder.set_child_prop(
+                        folder_path, 'compression', 'off')
                 try:
                     self._create_regular_file(nms, volume_path, volume_size)
                 finally:
                     if compression != 'off':
                         # Backup default compression value if it was changed.
-                        nms.folder.set('compression', compression)
+                        nms.folder.set_child_prop(
+                            folder_path, 'compression', compression)
 
             self._set_rw_permissions_for_all(nms, volume_path)
 
@@ -349,8 +355,8 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             try:
                 nms.folder.destroy('%s/%s' % (vol, folder))
             except nexenta.NexentaException:
-                LOG.warning(_LW("Cannot destroy created folder: "
-                                "%(vol)s/%(folder)s"),
+                LOG.warning(_("Cannot destroy created folder: "
+                              "%(vol)s/%(folder)s"),
                             {'vol': vol, 'folder': folder})
             raise exc
 
@@ -422,23 +428,22 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
 
         :param volume: volume reference
         """
-        super(NexentaNfsDriver, self).delete_volume(volume)
-
         nfs_share = volume.get('provider_location')
-
         if nfs_share:
             nms = self.share2nms[nfs_share]
             vol, parent_folder = self._get_share_datasets(nfs_share)
             folder = '%s/%s/%s' % (vol, parent_folder, volume['name'])
-            props = nms.folder.get_child_props(folder, 'origin') or {}
-            mount = self._get_mount_point_for_share(nfs_share)
-            self._execute('umount', mount, run_as_root=True)
+            mount_path = self.remote_path(volume).strip(
+                '/%s' % self.VOLUME_FILE_NAME)
+            if mount_path in self._remotefsclient._read_mounts():
+                self._execute('umount', mount_path, run_as_root=True)
             try:
+                props = nms.folder.get_child_props(folder, 'origin') or {}
                 nms.folder.destroy(folder, '-r')
             except nexenta.NexentaException as exc:
                 if 'does not exist' in exc.args[0]:
-                    LOG.info(_LI('Folder %s does not exist, it was '
-                                 'already deleted.'), folder)
+                    LOG.info(_('Folder %s does not exist, it was '
+                               'already deleted.'), folder)
                     return
                 raise
             origin = props.get('origin')
@@ -447,10 +452,39 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                     nms.snapshot.destroy(origin, '')
                 except nexenta.NexentaException as exc:
                     if 'does not exist' in exc.args[0]:
-                        LOG.info(_LI('Snapshot %s does not exist, it was '
-                                     'already deleted.'), origin)
+                        LOG.info(_('Snapshot %s does not exist, it was '
+                                   'already deleted.'), origin)
                         return
                     raise
+
+    def extend_volume(self, volume, new_size):
+        """Extend an existing volume.
+
+        :param volume: volume reference
+        :param new_size: volume new size in GB
+        """
+        LOG.info(_LI('Extending volume: %(id)s New size: %(size)s GB'),
+                 {'id': volume['id'], 'size': new_size})
+        nfs_share = volume['provider_location']
+        nms = self.share2nms[nfs_share]
+        volume_path = self.remote_path(volume)
+        if getattr(self.configuration,
+                   self.driver_prefix + '_sparsed_volumes'):
+            self._create_sparsed_file(nms, volume_path, new_size)
+        else:
+            block_size_mb = 1
+            block_count = ((new_size - volume['size']) * units.Gi /
+                           (block_size_mb * units.Mi))
+
+            nms.appliance.execute(
+                'dd if=/dev/zero seek=%(seek)d of=%(path)s'
+                ' bs=%(bs)dM count=%(count)d' % {
+                    'seek': volume['size'] * units.Gi / block_size_mb,
+                    'path': volume_path,
+                    'bs': block_size_mb,
+                    'count': block_count
+                }
+            )
 
     def create_snapshot(self, snapshot):
         """Creates a snapshot.
@@ -481,7 +515,10 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 LOG.info(_LI('Snapshot %s does not exist, it was '
                              'already deleted.'), '%s@%s' % (folder, snapshot))
                 return
-            raise
+            elif 'has dependent clones' in exc.args[0]:
+                LOG.info(_LI('Snapshot %s has dependent clones, it will '
+                             'be deleted later.'), '%s@%s' % (folder, snapshot))
+                return
 
     def _create_sparsed_file(self, nms, path, size):
         """Creates file with 0 disk usage.
@@ -740,6 +777,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             'share': share
         }
         nms_url = self.share2nms[share].url
+        reserve = 100 - self.configuration.nexenta_capacitycheck
         self._stats = {
             'vendor_name': 'Nexenta',
             'dedup': self.volume_deduplication,
@@ -751,7 +789,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             'storage_protocol': 'NFS',
             'total_capacity_gb': total_space,
             'free_capacity_gb': free_space,
-            'reserved_percentage': self.configuration.nexenta_capacitycheck,
+            'reserved_percentage': reserve,
             'QoS_support': False,
             'location_info': location_info,
             'volume_backend_name': self.backend_name,
