@@ -642,18 +642,20 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         try:
             self.nms.stmf.destroy_targetgroup(target_group_name)
         except nexenta.NexentaException as exc:
+            if 'not found' in exc.args[0]:
             # We assume that target group is already gone
-            LOG.warn(_LW('Got error trying to destroy target group'
-                         ' %(target_group)s, assuming it is '
-                         'already gone: %(exc)s'),
-                     {'target_group': target_group_name, 'exc': exc})
+                LOG.warn(_LW('Got error trying to destroy target group'
+                             ' %(target_group)s, assuming it is '
+                             'already gone: %(exc)s'),
+                         {'target_group': target_group_name, 'exc': exc})
         try:
             self.nms.iscsitarget.delete_target(target_name)
         except nexenta.NexentaException as exc:
+            if 'not found' in exc.args[0]:
             # We assume that target is gone as well
-            LOG.warn(_LW('Got error trying to delete target %(target)s,'
-                         ' assuming it is already gone: %(exc)s'),
-                     {'target': target_name, 'exc': exc})
+                LOG.warn(_LW('Got error trying to delete target %(target)s,'
+                             ' assuming it is already gone: %(exc)s'),
+                         {'target': target_name, 'exc': exc})
 
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
