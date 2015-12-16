@@ -23,8 +23,6 @@
 import json
 import requests
 import socket
-import time
-from six import wraps
 
 #from oslo_log import log as logging
 
@@ -38,27 +36,6 @@ except:
 
 LOG = logging.getLogger(__name__)
 socket.setdefaulttimeout(100)
-
-
-def retry(exc_tuple, tries=5, delay=1, backoff=2):
-    def retry_dec(f):
-        @wraps(f)
-        def func_retry(*args, **kwargs):
-            _tries, _delay = tries, delay
-            while _tries > 1:
-                try:
-                    return f(*args, **kwargs)
-                except exc_tuple:
-                    time.sleep(_delay)
-                    _tries -= 1
-                    _delay *= backoff
-                    LOG.debug('Retrying %s, (%s attempts remaining)...',
-                              (args, _tries))
-            msg = ('Retry count exceeded for command: %s', (args,))
-            LOG.error(msg)
-            raise Exception(msg)
-        return func_retry
-    return retry_dec
 
 
 class NexentaEdgeJSONProxy(object):
@@ -96,7 +73,6 @@ class NexentaEdgeJSONProxy(object):
     def __repr__(self):
         return 'HTTP JSON proxy: %s' % self.url
 
-    @retry(retry_exc_tuple, tries=6)
     def __call__(self, *args):
         self.path += args[0]
         data = None
