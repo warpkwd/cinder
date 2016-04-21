@@ -87,6 +87,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         self._nms2volroot = {}
         self.share2nms = {}
         self.nfs_versions = {}
+        self.shares_with_capacities = {}
 
     @property
     def backend_name(self):
@@ -122,7 +123,11 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 if not nms.folder.object_exists(folder):
                     raise LookupError(_("Folder %s does not exist in Nexenta "
                                         "Store appliance"), folder)
-                self._share_folder(nms, volume_name, dataset)
+                if (
+                    not folder in nms.netstorsvc.get_shared_folders(
+                        'svc:/network/nfs/server:default', '')):
+                    self._share_folder(nms, volume_name, dataset)
+                self._get_capacity_info(nfs_share)
 
     def migrate_volume(self, ctxt, volume, host):
         """Migrate if volume and host are managed by Nexenta appliance.
@@ -362,6 +367,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                 "%(vol)s/%(folder)s"),
                             {'vol': vol, 'folder': folder})
             raise
+        # self._get_capacity_info(nfs_share)
 
     def create_volume_from_snapshot(self, volume, snapshot):
         """Create new volume from other's snapshot on appliance.
@@ -402,6 +408,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 volume['size'] > snapshot['volume_size'])):
             self.extend_volume(volume, volume['size'])
 
+        # self._get_capacity_info(nfs_share)
         return {'provider_location': volume['provider_location']}
 
     def create_cloned_volume(self, volume, src_vref):
@@ -464,6 +471,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                      'already deleted.'), origin)
                         return
                     raise
+        # self._get_capacity_info(nfs_share)
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume.
@@ -626,7 +634,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             'recursive': 'true',
             'anonymous_rw': 'true',
         }
-        LOG.debug('Sharing folder %s on Nexenta Store', folder)
+        LOG.debug('Sharing folder %s on NexentaStor', folder)
         nms.netstorsvc.share_folder('svc:/network/nfs/server:default', path,
                                     share_opts)
 
@@ -745,6 +753,10 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                                   'used|available')
         free = utils.str2size(folder_props['available'])
         allocated = utils.str2size(folder_props['used'])
+        LOG.warning('free %s, allocated %s' % (free, allocated))
+        self.shares_with_capacities[nfs_share] = {
+            'free': utils.str2gib_size(free),
+            'total': utils.str2gib_size(free + allocated)}
         return free + allocated, free, allocated
 
     def _get_nms_for_url(self, url):
@@ -786,17 +798,15 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
     def _update_volume_stats(self):
         """Retrieve stats info for NexentaStor appliance."""
         LOG.debug('Updating volume stats')
-        total_space = 0
         free_space = 0
-        shares_with_capacities = {}
-        for mounted_share in self._mounted_shares:
-            total, free, allocated = self._get_capacity_info(mounted_share)
-            shares_with_capacities[mounted_share] = utils.str2gib_size(total)
-            if total_space < utils.str2gib_size(total):
-                total_space = utils.str2gib_size(total)
-            if free_space < utils.str2gib_size(free):
-                free_space = utils.str2gib_size(free)
-                share = mounted_share
+        for _share in self._mounted_shares:
+            if self.shares_with_capacities[_share]['free'] > free_space:
+                free_space = self.shares_with_capacities[_share]['free']
+                total_space = self.shares_with_capacities[_share]['total']
+                share = _share
+        if free_space < 1:
+            raise exception.NexentaException(
+                'No shares with free space found')
 
         location_info = '%(driver)s:%(share)s' % {
             'driver': self.__class__.__name__,
@@ -805,18 +815,18 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         nms_url = self.share2nms[share].url
         self._stats = {
             'vendor_name': 'Nexenta',
+            'location_info': location_info,
             'dedup': self.volume_deduplication,
             'compression': self.volume_compression,
             'description': self.volume_description,
             'nms_url': nms_url,
-            'ns_shares': shares_with_capacities,
+            'ns_shares': self.shares_with_capacities,
             'driver_version': self.VERSION,
             'storage_protocol': 'NFS',
             'total_capacity_gb': total_space,
             'free_capacity_gb': free_space,
             'reserved_percentage': self.configuration.reserved_percentage,
             'QoS_support': False,
-            'location_info': location_info,
             'volume_backend_name': self.backend_name,
             'nfs_mount_point_base': self.nfs_mount_point_base
         }

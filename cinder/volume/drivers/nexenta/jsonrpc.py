@@ -80,7 +80,7 @@ class NexentaJSONProxy(object):
         auth = ('%s:%s' % (self.user, self.password)).encode('base64')[:-1]
         headers = {'Content-Type': 'application/json'}
         LOG.debug('Sending JSON data: %s', data)
-        time.sleep(0.5)
+        # time.sleep(0.5)
         r = session.post(self.url, data=data, headers=headers)
         if r.status_code == 403:
             LOG.debug('Response returned 403, logging in')
