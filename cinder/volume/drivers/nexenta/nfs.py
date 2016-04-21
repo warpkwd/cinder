@@ -37,7 +37,7 @@ from cinder.volume.drivers.nexenta import options
 from cinder.volume.drivers.nexenta import utils
 from cinder.volume.drivers import nfs
 
-VERSION = '1.3.0'
+VERSION = '1.3.1'
 LOG = logging.getLogger(__name__)
 
 
@@ -54,6 +54,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 RemoteFsDriver.
         1.2.0 - Added migrate and retype methods.
         1.3.0 - Extend volume method.
+        1.3.1 - Cache free capacity.
     """
 
     driver_prefix = 'nexenta'
@@ -408,7 +409,6 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 volume['size'] > snapshot['volume_size'])):
             self.extend_volume(volume, volume['size'])
 
-        # self._get_capacity_info(nfs_share)
         return {'provider_location': volume['provider_location']}
 
     def create_cloned_volume(self, volume, src_vref):
@@ -471,7 +471,6 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                      'already deleted.'), origin)
                         return
                     raise
-        # self._get_capacity_info(nfs_share)
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume.
