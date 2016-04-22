@@ -1,4 +1,4 @@
-# Copyright 2011-2015 Nexenta Systems, Inc.
+# Copyright 2016 Nexenta Systems, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -17,21 +17,18 @@
 =====================================================================
 
 .. automodule:: nexenta.jsonrpc
-.. moduleauthor:: Nexenta OpenStack Developers <openstack.team@nexenta.com>
 """
 
-import urllib2
-
 from cinder.openstack.common import jsonutils
-
 from cinder.openstack.common import log as logging
 from cinder.volume.drivers import nexenta
 
+import socket
+import requests
+
 LOG = logging.getLogger(__name__)
-
-
-class NexentaJSONException(nexenta.NexentaException):
-    pass
+socket.setdefaulttimeout(100)
+session = requests.Session()
 
 
 class NexentaJSONProxy(object):
@@ -76,25 +73,20 @@ class NexentaJSONProxy(object):
             'params': args
         })
         auth = ('%s:%s' % (self.user, self.password)).encode('base64')[:-1]
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Basic %s' % auth
-        }
+        headers = {'Content-Type': 'application/json'}
         LOG.debug('Sending JSON data: %s', data)
-        request = urllib2.Request(self.url, data, headers)
-        response_obj = urllib2.urlopen(request)
-        if response_obj.info().status == 'EOF in headers':
-            if not self.auto or self.scheme != 'http':
-                LOG.error('No headers in server response')
-                raise NexentaJSONException('Bad response from server')
-            LOG.info('Auto switching to HTTPS connection to %s', self.url)
-            self.scheme = 'https'
-            request = urllib2.Request(self.url, data, headers)
-            response_obj = urllib2.urlopen(request)
+        r = session.post(self.url, data=data, headers=headers)
+        if r.status_code == 403:
+            LOG.debug('Response returned 403, logging in')
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': 'Basic %s' % auth
+            }
+            r = session.post(self.url, data=data, headers=headers)
+        response = r.json()
 
-        response_data = response_obj.read()
-        LOG.debug('Got response: %s', response_data)
-        response = jsonutils.loads(response_data)
+        LOG.debug('Got response: %s', response)
         if response.get('error') is not None:
-            raise NexentaJSONException(response['error'].get('message', ''))
+            message = response['error'].get('message', '')
+            raise nexenta.NexentaException(message)
         return response.get('result')

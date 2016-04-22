@@ -39,7 +39,7 @@ from cinder.volume.drivers.nexenta import options
 from cinder.volume.drivers.nexenta import utils
 from cinder.volume.drivers import nfs
 
-VERSION = '1.2.0'
+VERSION = '1.3.1'
 LOG = logging.getLogger(__name__)
 
 
@@ -57,6 +57,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         1.2.0 - Added migrate and retype methods.
         1.2.0.1 - Backport imports (logging, units, translations) for Juno.
         1.3.0 - Extend volume method.
+        1.3.1 - Cache capacity info.
     """
 
     driver_prefix = 'nexenta'
@@ -88,6 +89,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         self._nms2volroot = {}
         self.share2nms = {}
         self.nfs_versions = {}
+        self.shares_with_capacities = {}
 
     @property
     def backend_name(self):
@@ -123,7 +125,11 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 if not nms.folder.object_exists(folder):
                     raise LookupError(_("Folder %s does not exist in Nexenta "
                                         "Store appliance"), folder)
-                self._share_folder(nms, volume_name, dataset)
+                if (
+                    not folder in nms.netstorsvc.get_shared_folders(
+                        'svc:/network/nfs/server:default', '')):
+                    self._share_folder(nms, volume_name, dataset)
+                self._get_capacity_info(nfs_share)
 
     def migrate_volume(self, ctxt, volume, host):
         """Migrate if volume and host are managed by Nexenta appliance.
@@ -723,9 +729,13 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         nms = self.share2nms[nfs_share]
         ns_volume, ns_folder = self._get_share_datasets(nfs_share)
         folder_props = nms.folder.get_child_props('%s/%s' % (ns_volume,
-                                                             ns_folder), '')
+                                                             ns_folder),
+                                                  'used|available')
         free = utils.str2size(folder_props['available'])
         allocated = utils.str2size(folder_props['used'])
+        self.shares_with_capacities[nfs_share] = {
+            'free': utils.str2gib_size(free),
+            'total': utils.str2gib_size(free + allocated)}
         return free + allocated, free, allocated
 
     def _get_nms_for_url(self, url):
@@ -770,38 +780,32 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         self._ensure_shares_mounted()
         if not self._mounted_shares:
             return
-        total_space = 0
         free_space = 0
-        shares_with_capacities = {}
-        for mounted_share in self._mounted_shares:
-            total, free, allocated = self._get_capacity_info(mounted_share)
-            shares_with_capacities[mounted_share] = utils.str2gib_size(total)
-            if total_space < utils.str2gib_size(total):
-                total_space = utils.str2gib_size(total)
-            if free_space < utils.str2gib_size(free):
-                free_space = utils.str2gib_size(free)
-                share = mounted_share
+        for _share in self._mounted_shares:
+            if self.shares_with_capacities[_share]['free'] > free_space:
+                free_space = self.shares_with_capacities[_share]['free']
+                total_space = self.shares_with_capacities[_share]['total']
+                share = _share
 
         location_info = '%(driver)s:%(share)s' % {
             'driver': self.__class__.__name__,
             'share': share
         }
         nms_url = self.share2nms[share].url
-        reserve = 100 - self.configuration.nexenta_capacitycheck
         self._stats = {
             'vendor_name': 'Nexenta',
+            'location_info': location_info,
             'dedup': self.volume_deduplication,
             'compression': self.volume_compression,
             'description': self.volume_description,
             'nms_url': nms_url,
-            'ns_shares': shares_with_capacities,
+            'ns_shares': self.shares_with_capacities,
             'driver_version': self.VERSION,
             'storage_protocol': 'NFS',
             'total_capacity_gb': total_space,
             'free_capacity_gb': free_space,
-            'reserved_percentage': reserve,
+            'reserved_percentage': self.configuration.reserved_percentage,
             'QoS_support': False,
-            'location_info': location_info,
             'volume_backend_name': self.backend_name,
             'nfs_mount_point_base': self.nfs_mount_point_base
         }
