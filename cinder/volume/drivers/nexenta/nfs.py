@@ -405,6 +405,10 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                                                  volume)
             self._ensure_share_mounted(sub_share, mnt_path)
 
+        if (('size' in volume) and (
+                volume['size'] > snapshot['volume_size'])):
+            self.extend_volume(volume, volume['size'])
+
         return {'provider_location': volume['provider_location']}
 
     def create_cloned_volume(self, volume, src_vref):
@@ -416,6 +420,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         LOG.info(_('Creating clone of volume: %s'), src_vref['id'])
         snapshot = {'volume_name': src_vref['name'],
                     'volume_id': src_vref['id'],
+                    'volume_size': src_vref['size'],
                     'name': self._get_clone_snapshot_name(volume)}
         # We don't delete this snapshot, because this snapshot will be origin
         # of new volume. This snapshot will be automatically promoted by NMS
@@ -522,8 +527,20 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
             nms.snapshot.destroy('%s@%s' % (folder, snapshot['name']), '')
         except nexenta.NexentaException as exc:
             if 'does not exist' in exc.args[0]:
-                LOG.info(_('Snapshot %s does not exist, it was '
-                           'already deleted.'), '%s@%s' % (folder, snapshot))
+                LOG.debug(_('Snapshot %(folder)s@%(snapshot)s does not '
+                             'exist, it was already deleted.'),
+                         {
+                             'folder': folder,
+                             'snapshot': snapshot,
+                })
+                return
+            elif 'has dependent clones' in exc.args[0]:
+                LOG.debug(_('Snapshot %(folder)s@%(snapshot)s has dependent '
+                             'clones, it will be deleted later.'),
+                         {
+                             'folder': folder,
+                             'snapshot': snapshot,
+                })
                 return
             raise
 
