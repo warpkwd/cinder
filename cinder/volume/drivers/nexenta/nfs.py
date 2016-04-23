@@ -461,6 +461,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                'already deleted.'), folder)
                     return
                 raise
+            self._get_capacity_info()
             origin = props.get('origin')
             if origin and self._is_clone_snapshot_name(origin):
                 try:
