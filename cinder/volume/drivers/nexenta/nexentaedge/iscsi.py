@@ -74,9 +74,10 @@ class NexentaEdgeISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
 
     Version history:
         1.0.0 - Initial driver version.
+        1.0.1 - Added HA support.
     """
 
-    VERSION = '1.0.0'
+    VERSION = '1.0.1'
 
     LUN_BLOCKSIZE = 4096
     LUN_CHUNKSIZE = 16384
@@ -98,6 +99,7 @@ class NexentaEdgeISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         self.iscsi_target_port = (self.configuration.
                                   nexenta_iscsi_target_portal_port)
         self.target_vip = None
+        self.ha_vip = None
 
     @property
     def backend_name(self):
@@ -109,6 +111,13 @@ class NexentaEdgeISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         return backend_name
 
     def do_setup(self, context):
+        def get_ip(host):
+            hm = host[0 if len(host) == 1 else 1]['ip'].split('/', 1)
+            return {
+                'ip': hm[0],
+                'mask': hm[1] if len(hm) > 1 else '32'
+            }
+
         if self.restapi_protocol == 'auto':
             protocol, auto = 'http', True
         else:
@@ -124,17 +133,29 @@ class NexentaEdgeISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             data_keys = rsp['data'][rsp['data'].keys()[0]]
             self.target_name = data_keys.split('\n', 1)[0].split(' ')[2]
 
+            target_vip = self.configuration.safe_get(
+                'nexenta_client_address')
             rsp = self.restapi.get('service/' + self.iscsi_service)
             if 'X-VIPS' in rsp['data']:
                 vips = json.loads(rsp['data']['X-VIPS'])
-                if (len(vips[0]) == 1):
-                    self.target_vip = vips[0][0]['ip'].split('/', 1)[0]
+                vips = [get_ip(host) for host in vips]
+                if target_vip:
+                    found = False
+                    for host in vips:
+                        if target_vip == host['ip']:
+                            self.ha_vip = '/'.join((host['ip'], host['mask']))
+                            found = True
+                            break
+                    if not found:
+                        raise Exception(
+                            _("nexenta_client_address doesn't match any VIPs "
+                              "provided by service: {}".format(
+                                ", ".join([host['ip'] for host in vips]))))
                 else:
-                    self.target_vip = vips[0][1]['ip'].split('/', 1)[0]
-            else:
-                self.target_vip = self.configuration.safe_get(
-                    'nexenta_client_address')
-                if not self.target_vip:
+                    if len(vips) == 1:
+                        target_vip = vips[0]['ip']
+                        self.ha_vip = '/'.join((vips[0]['ip'], vips[0]['mask']))
+            if not target_vip:
                     LOG.error(_LE('No VIP configured for service %s'),
                               self.iscsi_service)
                     raise Exception(_('No service VIP configured and '
@@ -179,13 +200,16 @@ class NexentaEdgeISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
         }
 
     def create_volume(self, volume):
+        data = {
+            'objectPath': self.bucket_path + '/' + volume['name'],
+            'volSizeMB': int(volume['size']) * units.Ki,
+            'blockSize': self.LUN_BLOCKSIZE,
+            'chunkSize': self.LUN_CHUNKSIZE
+        }
+        if self.ha_vip:
+            data['vip'] = self.ha_vip
         try:
-            self.restapi.post('service/' + self.iscsi_service + '/iscsi', {
-                'objectPath': self.bucket_path + '/' + volume['name'],
-                'volSizeMB': int(volume['size']) * units.Ki,
-                'blockSize': self.LUN_BLOCKSIZE,
-                'chunkSize': self.LUN_CHUNKSIZE
-            })
+            self.restapi.post('service/' + self.iscsi_service + '/iscsi', data)
         except Exception:
             LOG.exception(_LE('Error creating volume'))
             raise
