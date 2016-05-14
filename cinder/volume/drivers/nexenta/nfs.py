@@ -461,7 +461,6 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                'already deleted.'), folder)
                     return
                 raise
-            self._get_capacity_info()
             origin = props.get('origin')
             if origin and self._is_clone_snapshot_name(origin):
                 try:
@@ -472,6 +471,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                                    'already deleted.'), origin)
                         return
                     raise
+        self._get_capacity_info()
 
     def extend_volume(self, volume, new_size):
         """Extend an existing volume.
@@ -486,11 +486,16 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         volume_path = self.remote_path(volume)
         if getattr(self.configuration,
                    self.driver_prefix + '_sparsed_volumes'):
-            self._create_sparsed_file(nms, volume_path, new_size)
+            nms.appliance.execute(
+                 'qemu-img resize %(path)s +%(size)dG' % {
+                    'path': volume_path,
+                    'size': new_size - volume['size']
+                }
+            )
         else:
             block_size_mb = 1
-            block_count = ((new_size - volume['size']) * units.Gi / 
-                (block_size_mb * units.Mi))
+            block_count = ((new_size - volume['size']) * units.Gi /
+                           (block_size_mb * units.Mi))
 
             nms.appliance.execute(
                 'dd if=/dev/zero seek=%(seek)d of=%(path)s'
@@ -543,7 +548,6 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                              'snapshot': snapshot,
                 })
                 return
-            raise
 
     def _create_sparsed_file(self, nms, path, size):
         """Creates file with 0 disk usage.
@@ -553,7 +557,7 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
         :param size: size of file
         """
         nms.appliance.execute(
-            'truncate --size %(size)dG %(path)s' % {
+             'qemu-img create -f qcow2 %(path)s %(size)dG' % {
                 'path': path,
                 'size': size
             }
@@ -653,7 +657,6 @@ class NexentaNfsDriver(nfs.NfsDriver):  # pylint: disable=R0921
                 continue
 
             share_info = re.split(r'\s+', share, 2)
-
             share_address = share_info[0].strip().decode('unicode_escape')
             nms_url = share_info[1].strip()
             share_opts = share_info[2].strip() if len(share_info) > 2 else None
