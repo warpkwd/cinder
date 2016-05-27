@@ -454,7 +454,7 @@ class NexentaISCSIDriver(driver.ISCSIDriver):  # pylint: disable=R0921
             model_update = {'provider_location': provider_location}
         return model_update
 
-    def create_export(self, _ctx, volume, connector):
+    def create_export(self, _ctx, volume, connector=None):
         """Create new export for zfs volume.
 
         :param volume: reference of volume to be exported
