@@ -31,7 +31,6 @@ class NexentaEdgeJSONProxy(object):
 
     retry_exc_tuple = (
         requests.exceptions.ConnectionError,
-        requests.exceptions.ConnectTimeout
     )
 
     def __init__(self, protocol, host, port, path, user, password, auto=False,
