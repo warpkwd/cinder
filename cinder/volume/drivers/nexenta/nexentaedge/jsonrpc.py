@@ -1,4 +1,4 @@
-# Copyright 2011 Nexenta Systems, Inc.
+# Copyright 2015 Nexenta Systems, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -12,58 +12,26 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
-"""
-:mod:`nexentaedge.jsonrpc` -- NexentaEdge-specific JSON RPC client
-=====================================================================
-.. automodule:: nexentaedge.jsonrpc
-.. moduleauthor:: Zohar Mamedov <zohar.mamedov@nexenta.com>
-.. moduleauthor:: Kyle Schochenmaier <kyle.schochenmaier@nexenta.com>
-"""
 
 import json
 import requests
 import socket
-import time
-from six import wraps
 
-from cinder.i18n import _, _LE, _LI
+from oslo_log import log as logging
 
-#from oslo_log import log as logging
-
-try:
-    from oslo_log import log as logging
-except:
-    try:
-        from oslo.log import log as logging
-    except:
-        from cinder.openstack.common import log as logging
+from cinder import exception
+from cinder.i18n import _
+from cinder.utils import retry
 
 LOG = logging.getLogger(__name__)
 socket.setdefaulttimeout(100)
 
-def retry(exc_tuple, tries=5, delay=1, backoff=2):
-    def retry_dec(f):
-        @wraps(f)
-        def func_retry(*args, **kwargs):
-            _tries, _delay = tries, delay
-            while _tries > 1:
-                try:
-                    return f(*args, **kwargs)
-                except exc_tuple:
-                    time.sleep(_delay)
-                    _tries -= 1
-                    _delay *= backoff
-                    LOG.debug(_('Retrying %s, (%s attempts remaining)...'),
-                              (args, _tries))
-            msg = (_('Retry count exceeded for command: %s'), (args,))
-            LOG.error(msg)
-            raise Exception(msg)
-        return func_retry
-    return retry_dec
 
 class NexentaEdgeJSONProxy(object):
 
-    retry_exc_tuple = (requests.exceptions.ConnectionError,)
+    retry_exc_tuple = (
+        requests.exceptions.ConnectionError,
+    )
 
     def __init__(self, protocol, host, port, path, user, password, auto=False,
                  method=None):
@@ -78,14 +46,15 @@ class NexentaEdgeJSONProxy(object):
 
     @property
     def url(self):
-        return '%s://%s:%s%s' % (self.protocol,
-                                 self.host, self.port, self.path)
+        return '%s://%s:%s/%s' % (self.protocol,
+                                  self.host, self.port, self.path)
 
     def __getattr__(self, name):
         if not self.method:
             method = name
         else:
-            raise Exception(_("Wrong resource call syntax"))
+            raise exception.VolumeDriverException(
+                _("Wrong resource call syntax"))
         return NexentaEdgeJSONProxy(
             self.protocol, self.host, self.port, self.path,
             self.user, self.password, self.auto, method)
@@ -96,9 +65,9 @@ class NexentaEdgeJSONProxy(object):
     def __repr__(self):
         return 'HTTP JSON proxy: %s' % self.url
 
-    @retry(retry_exc_tuple, tries=6)
+    @retry(retry_exc_tuple, interval=1, retries=6)
     def __call__(self, *args):
-        self.path += args[0]
+        self.path = args[0]
         data = None
         if len(args) > 1:
             data = json.dumps(args[1])
@@ -109,7 +78,7 @@ class NexentaEdgeJSONProxy(object):
             'Authorization': 'Basic %s' % auth
         }
 
-        LOG.debug('Sending JSON data: %s', self.url)
+        LOG.debug('Sending JSON data: %s, data: %s', self.url, data)
 
         if self.method == 'get':
             req = requests.get(self.url, headers=headers)
@@ -123,7 +92,8 @@ class NexentaEdgeJSONProxy(object):
         rsp = req.json()
         req.close()
 
-        LOG.info(_LI('Got response: %s') % rsp)
+        LOG.debug('Got response: %s', rsp)
         if rsp.get('response') is None:
-            raise Exception(_LE('Bad response: %s') % rsp)
+            raise exception.VolumeBackendAPIException(
+                _('Error response: %s') % rsp)
         return rsp.get('response')
