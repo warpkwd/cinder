@@ -1,4 +1,4 @@
-# Copyright 2013 Nexenta Systems, Inc.
+# Copyright 2016 Nexenta Systems, Inc.
 # All Rights Reserved.
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
@@ -15,21 +15,48 @@
 """
 :mod:`nexenta.options` -- Contains configuration options for Nexenta drivers.
 =============================================================================
-
 .. automodule:: nexenta.options
-.. moduleauthor:: Victor Rodionov <victor.rodionov@nexenta.com>
-.. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
 """
 
 from oslo_config import cfg
 
+
+NEXENTA_EDGE_OPTS = [
+    cfg.StrOpt('nexenta_nbd_symlinks_dir',
+               default='/dev/disk/by-path',
+               help='NexentaEdge logical path of directory to store symbolic '
+                    'links to NBDs'),
+    cfg.StrOpt('nexenta_rest_address',
+               default='',
+               help='IP address of NexentaEdge management REST API endpoint'),
+    cfg.StrOpt('nexenta_rest_user',
+               default='admin',
+               help='User name to connect to NexentaEdge'),
+    cfg.StrOpt('nexenta_rest_password',
+               default='nexenta',
+               help='Password to connect to NexentaEdge',
+               secret=True),
+    cfg.StrOpt('nexenta_lun_container',
+               default='',
+               help='NexentaEdge logical path of bucket for LUNs'),
+    cfg.StrOpt('nexenta_iscsi_service',
+               default='',
+               help='NexentaEdge iSCSI service name'),
+    cfg.StrOpt('nexenta_client_address',
+               default='',
+               help='NexentaEdge iSCSI Gateway client '
+               'address for non-VIP service'),
+    cfg.IntOpt('nexenta_chunksize',
+               default=32768,
+               help='NexentaEdge iSCSI LUN object chunk size')
+]
 
 NEXENTA_CONNECTION_OPTS = [
     cfg.StrOpt('nexenta_host',
                default='',
                help='IP address of Nexenta SA'),
     cfg.IntOpt('nexenta_rest_port',
-               default=2000,
+               default=8080,
                help='HTTP port to connect to Nexenta REST API server'),
     cfg.StrOpt('nexenta_rest_protocol',
                default='auto',
@@ -57,6 +84,9 @@ NEXENTA_ISCSI_OPTS = [
     cfg.StrOpt('nexenta_target_group_prefix',
                default='cinder/',
                help='Prefix for iSCSI target groups on SA'),
+    cfg.StrOpt('nexenta_volume_group',
+               default='iscsi',
+               help='Volume group for ns5'),
 ]
 
 NEXENTA_NFS_OPTS = [
@@ -78,33 +108,29 @@ NEXENTA_NFS_OPTS = [
                       'value.'))
 ]
 
-NEXENTA_VOLUME_OPTS = [
-    cfg.StrOpt('nexenta_volume_compression',
+NEXENTA_DATASET_OPTS = [
+    cfg.StrOpt('nexenta_dataset_compression',
                default='on',
                choices=['on', 'off', 'gzip', 'gzip-1', 'gzip-2', 'gzip-3',
                         'gzip-4', 'gzip-5', 'gzip-6', 'gzip-7', 'gzip-8',
                         'gzip-9', 'lzjb', 'zle', 'lz4'],
                help='Compression value for new ZFS folders.'),
-    cfg.StrOpt('nexenta_volume_dedup',
+    cfg.StrOpt('nexenta_dataset_dedup',
                default='off',
                choices=['on', 'off', 'sha256', 'verify', 'sha256, verify'],
                help='Deduplication value for new ZFS folders.'),
-    cfg.StrOpt('nexenta_volume_description',
+    cfg.StrOpt('nexenta_dataset_description',
                default='',
                help='Human-readable description for the folder.'),
-    cfg.StrOpt('nexenta_blocksize',
-               default='',
-               help='Block size for volumes'),
+    cfg.IntOpt('nexenta_blocksize',
+               default=4096,
+               help='Block size for datasets'),
     cfg.IntOpt('nexenta_ns5_blocksize',
                default=32,
-               help='Block size for volumes'),
+               help='Block size for datasets'),
     cfg.BoolOpt('nexenta_sparse',
                 default=False,
-                help='Enables or disables the creation of sparse volumes'),
-    cfg.IntOpt('nexenta_capacitycheck',
-               default=80,
-               help=('Percentage of real disc capacity for cinder to use. '
-                     '80 is recommened')),
+                help='Enables or disables the creation of sparse datasets'),
 ]
 
 NEXENTA_RRMGR_OPTS = [
@@ -123,6 +149,7 @@ NEXENTA_RRMGR_OPTS = [
 CONF = cfg.CONF
 CONF.register_opts(NEXENTA_CONNECTION_OPTS)
 CONF.register_opts(NEXENTA_ISCSI_OPTS)
-CONF.register_opts(NEXENTA_VOLUME_OPTS)
+CONF.register_opts(NEXENTA_DATASET_OPTS)
 CONF.register_opts(NEXENTA_NFS_OPTS)
 CONF.register_opts(NEXENTA_RRMGR_OPTS)
+CONF.register_opts(NEXENTA_EDGE_OPTS)

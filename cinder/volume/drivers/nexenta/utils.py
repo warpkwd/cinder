@@ -17,10 +17,10 @@
 =========================================================
 
 .. automodule:: nexenta.utils
-.. moduleauthor:: Nexenta OpenStack Developers <openstack.team@nexenta.com>
 """
 
 import re
+import six
 
 from oslo_utils import units
 import six.moves.urllib.parse as urlparse
@@ -39,7 +39,7 @@ def str2size(s, scale=1024):
     if not s:
         return 0
 
-    if isinstance(s, (int, long)):
+    if isinstance(s, int):
         return s
 
     match = re.match(r'^([\.\d]+)\s*([BbKkMmGgTtPpEeZzYy]?)', s)
@@ -59,7 +59,7 @@ def str2size(s, scale=1024):
 def str2gib_size(s):
     """Covert size-string to size in gigabytes."""
     size_in_bytes = str2size(s)
-    return size_in_bytes / units.Gi
+    return size_in_bytes // units.Gi
 
 
 def get_rrmgr_cmd(src, dst, compression=None, tcp_buf_size=None,
@@ -67,13 +67,13 @@ def get_rrmgr_cmd(src, dst, compression=None, tcp_buf_size=None,
     """Returns rrmgr command for source and destination."""
     cmd = ['rrmgr', '-s', 'zfs']
     if compression:
-        cmd.extend(['-c', '%s' % str(compression)])
+        cmd.extend(['-c', '%s' % compression])
     cmd.append('-q')
     cmd.append('-e')
     if tcp_buf_size:
-        cmd.extend(['-w', str(tcp_buf_size)])
+        cmd.extend(['-w', six.text_type(tcp_buf_size)])
     if connections:
-        cmd.extend(['-n', str(connections)])
+        cmd.extend(['-n', six.text_type(connections)])
     cmd.extend([src, dst])
     return ' '.join(cmd)
 

@@ -17,37 +17,42 @@
 =====================================================================
 
 .. automodule:: nexenta.jsonrpc
-.. moduleauthor:: Yuriy Taraday <yorik.sar@gmail.com>
-.. moduleauthor:: Victor Rodionov <victor.rodionov@nexenta.com>
 """
+
+import base64
+import json
 import time
-import urllib2
 
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
+import requests
 
-from cinder.volume.drivers import nexenta
+from cinder.volume.drivers.nexenta import NexentaException
 
 LOG = logging.getLogger(__name__)
 
 
-class NexentaJSONException(nexenta.NexentaException):
-    pass
-
-
 class NexentaJSONProxy(object):
 
-    def __init__(self, scheme, host, port, user, password, auto=False):
+    def __init__(self, scheme, host, port, user,
+                 password, auto=False, method=None):
         self.scheme = scheme
         self.host = host
         self.port = port
         self.user = user
         self.password = password
         self.auto = True
+        self.method = method
 
     @property
     def url(self):
         return '%s://%s:%s/' % (self.scheme, self.host, self.port)
+
+    def __getattr__(self, method=None):
+        if method:
+            return NexentaJSONProxy(
+                self.scheme, self.host, self.port,
+                self.user, self.password, self.auto, method)
 
     def __hash__(self):
         return self.url.__hash__()
@@ -55,44 +60,43 @@ class NexentaJSONProxy(object):
     def __repr__(self):
         return 'NEF proxy: %s' % self.url
 
-    def __call__(self, path, data=None, method=None):
-        auth = ('%s:%s' % (self.user, self.password)).encode('base64')[:-1]
+    def __call__(self, path, data=None):
+        auth = base64.b64encode(
+            ('%s:%s' % (self.user, self.password)).encode('utf-8'))[:-1]
         headers = {
             'Content-Type': 'application/json',
             'Authorization': 'Basic %s' % auth
         }
-        LOG.debug(('Sending JSON to url: %(path)s, data: %(data)s,'
-                   ' method: %(method)s') % {
-            'path': path,
-            'data': data,
-            'method': method
-        })
         url = self.url + path
+
         if data:
             data = jsonutils.dumps(data)
-        try:
-            request = urllib2.Request(url, data, headers)
-            if method:
-                request.get_method = lambda: method
-            response_obj = urllib2.urlopen(request)
-            response_data = response_obj.read()
-        except urllib2.HTTPError as error:
-            raise NexentaJSONException(error.read())
-        if response_obj.code in (200, 201) and not response_data:
+
+        LOG.debug('Sending JSON to url: %s, data: %s, method: %s',
+                  path, data, self.method)
+
+        resp = getattr(requests, self.method)(url, data=data, headers=headers)
+
+        if resp.status_code == 201 or (
+                resp.status_code == 200 and not resp.content):
+            LOG.debug('Got response: Success')
             return 'Success'
-        if response_data and response_obj.code == 202:
-            response = jsonutils.loads(response_data)
+
+        response = json.loads(resp.content)
+        resp.close()
+        if response and resp.status_code == 202:
             url = self.url + response['links'][0]['href']
-            while response_obj.code == 202:
-                try:
-                    time.sleep(1)
-                    request = urllib2.Request(url, None, headers)
-                    response_obj = urllib2.urlopen(request)
-                    response_data = response_obj.read()
-                except urllib2.HTTPError as error:
-                    raise NexentaJSONException(error.read())
-                if response_obj.code in (200, 201) and not response_data:
+            while resp.status_code == 202:
+                time.sleep(1)
+                resp = requests.get(url)
+                if resp.status_code == 201 or (
+                        resp.status_code == 200 and not resp.content):
+                    LOG.debug('Got response: Success')
                     return 'Success'
-        LOG.debug('Got response: %s', response_data)
-        response = jsonutils.loads(response_data)
+                else:
+                    response = json.loads(resp.content)
+                resp.close()
+        if response.get('code'):
+            raise NexentaException(response)
+        LOG.debug('Got response: %s', response)
         return response
