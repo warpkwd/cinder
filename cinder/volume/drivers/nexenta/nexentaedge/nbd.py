@@ -287,7 +287,7 @@ class NexentaEdgeNBDDriver(driver.VolumeDriver):
     def ensure_export(self, context, volume):
         pass
 
-    def create_export(self, context, volume, connector, vg=None):
+    def create_export(self, context, volume, connector=None):
         pass
 
     def remove_export(self, context, volume):
